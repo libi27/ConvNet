@@ -11,6 +11,7 @@ classdef ConvNet < handle
         Loss;
         AllLoss;
         AvgTheta;
+        train = 0;
     end
     properties (SetAccess = private, GetAccess = private)
         mygpuArray;
@@ -99,6 +100,13 @@ classdef ConvNet < handle
                         this.O{outInd} = this.O{inInd(1)} .* this.O{inInd(2)};
                     case 'add'
                         this.O{outInd} = this.net{i}.alpha * this.O{inInd(1)} + this.net{i}.beta *this.O{inInd(2)};
+                    case 'dropout'
+                        if(this.train == 1)
+                            randMat = rand(size(this.O{inInd},1),size(this.O{inInd},2) , size(this.O{inInd},3));
+                            this.O{outInd} = this.O{inInd} .* (repmat(randMat,[1, 1, 1, size(this.O{inInd},4)]) > this.net{i}.p);
+                        else
+                            this.O{outInd} = this.O{inInd} .* (ones(size(this.O{inInd})) * (1 - this.net{i}.p));
+                        end
                     otherwise
                         assert(false,'Unknown Layer type')
                 end
@@ -173,6 +181,8 @@ classdef ConvNet < handle
                     case 'add'
                         this.delta{inInd(1)} = this.net{i}.alpha * this.delta{outInd};
                         this.delta{inInd(2)} = this.net{i}.beta  * this.delta{outInd};
+                    case 'dropout'
+                        this.delta{inInd} = (1 - this.net{i}.p) * this.delta{outInd} .* (this.O{outInd} ~= 0);
                     otherwise
                         assert(false,'Unknown Layer type')
                 end
@@ -189,6 +199,7 @@ classdef ConvNet < handle
             % SGD with Nesterov's momentum
             % See demoMNIST.m for usage
             
+			this.train = 1;
             this.prepareForStatAndSnapshot(T,param);
             m = this.net{1}.data.m;
             
@@ -213,6 +224,7 @@ classdef ConvNet < handle
                 % statistics for printing and snapshot
                 this.statAndSnapshot(t,lam);
             end
+			this.train = 0;
         end
         
         function SGD(this,T,learningRate,lam,param)
@@ -566,6 +578,12 @@ classdef ConvNet < handle
                         this.O{Oind} = this.net{layerInd}.loss.LossAndErr(this.O(inInd));
                         needBack(Oind) = needBack(inInd(1));
                         this.lossInd = Oind;
+                        
+                    case 'dropout'
+                        layerInd = layerInd+1;
+                        this.O{Oind} = this.O{inInd};
+                        this.net{layerInd} = struct('type','dropout','outInd',Oind,'inInd',inInd, 'p', netD{i}.p, 'needBackward', needBackward);
+                        needBack(Oind) = needBack(inInd); 
                         
                     otherwise
                         assert(false,'Unknown Layer type')
